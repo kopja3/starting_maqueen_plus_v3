@@ -1,148 +1,273 @@
-function turnLeft() {
-    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.LeftMotor, maqueenPlusV2.MyEnumDir.Forward, TURN_SLOW)
-    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.RightMotor, maqueenPlusV2.MyEnumDir.Forward, TURN_FAST)
+let groundRef = 0
+let groundNow = 0
+
+let leftFront = 0
+let centerFront = 0
+let rightFront = 0
+
+let leftSpeed = 0
+let rightSpeed = 0
+
+let pidForwardActive = false
+let forwardStartedAt = 0
+let stuckSince = 0
+let almostStoppedSince = 0
+
+let turnBias = 1
+
+let LIDAR_ADDR = matrixLidarDistance.Addr.Addr4
+
+// Jos auto kääntyy väärään suuntaan, vaihda tämä arvo -1:ksi
+let RIGHT_SIGN = 1
+
+// Säädöt
+let CLIFF_MARGIN_MM = 50
+let SIDE_OBSTACLE_MM = 260
+let CENTER_OBSTACLE_MM = 220
+
+let FORWARD_SEGMENT_CM = 120
+let BACKUP_CM = 15
+let CLIFF_BACKUP_CM = 10
+
+let SMALL_TURN_DEG = 25
+let NORMAL_TURN_DEG = 95
+let ESCAPE_TURN_DEG = 130
+
+let STUCK_SPEED_CM_S = 2
+let STUCK_TIME_MS = 3000
+let FINISHED_SPEED_CM_S = 1
+let FINISHED_TIME_MS = 400
+
+function avgSpeed() {
+    return (Math.abs(leftSpeed) + Math.abs(rightSpeed)) / 2
 }
-function stopMotors() {
-    maqueenPlusV2.controlMotorStop(maqueenPlusV2.MyEnumMotor.AllMotor)
+
+function isObstacle(dist: number, threshold: number) {
+    return dist > 0 && dist < threshold
 }
-function driveBackward() {
-    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.LeftMotor, maqueenPlusV2.MyEnumDir.Backward, BACK_SPEED)
-    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.RightMotor, maqueenPlusV2.MyEnumDir.Backward, BACK_SPEED)
-}
-function turnRight() {
-    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.LeftMotor, maqueenPlusV2.MyEnumDir.Forward, TURN_FAST)
-    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.RightMotor, maqueenPlusV2.MyEnumDir.Forward, TURN_SLOW)
-}
-function driveForward() {
-    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.LeftMotor, maqueenPlusV2.MyEnumDir.Forward, FORWARD_SPEED)
-    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.RightMotor, maqueenPlusV2.MyEnumDir.Forward, FORWARD_SPEED)
-}
-function isObstacle(dist: number) {
-    return dist > 0 && dist < OBSTACLE_MM
-}
-function openScore(dist: number) {
-    if (dist <= 0) {
-        return 1000
-    } else {
+
+function spaceScore(dist: number) {
+    if (dist > 0) {
         return dist
-    }
-}
-function escapeFromStuck() {
-    stopMotors()
-    basic.pause(150)
-
-    // noin 15 cm, säädä tarvittaessa 500...800 ms
-    driveBackward()
-    basic.pause(BACK_15CM_MS)
-
-    // käänny siihen suuntaan, jossa on enemmän tilaa
-    if (openScore(leftDist) > openScore(rightDist)) {
-        turnLeft()
     } else {
-        turnRight()
+        return 9999
     }
-    basic.pause(RETRY_TURN_MS)
-
-    stopMotors()
-    basic.pause(100)
-
-    stuckStart = 0
-    prevLeftDist = leftDist
-    prevRightDist = rightDist
 }
 
-let rightDist = 0
-let leftDist = 0
-let BACK_SPEED = 0
-let TURN_SLOW = 0
-let TURN_FAST = 0
-let FORWARD_SPEED = 0
-let OBSTACLE_MM = 0
+function readFrontDistances() {
+    leftFront = matrixLidarDistance.matrixPointOutput(LIDAR_ADDR, 0, 6)
+    centerFront = matrixLidarDistance.matrixPointOutput(LIDAR_ADDR, 3, 6)
+    rightFront = matrixLidarDistance.matrixPointOutput(LIDAR_ADDR, 7, 6)
+}
 
-let prevLeftDist = 0
-let prevRightDist = 0
-let stuckStart = 0
-let STUCK_TIME_MS = 0
-let STUCK_DELTA_MM = 0
-let WATCH_NEAR_MM = 0
-let BACK_15CM_MS = 0
-let RETRY_TURN_MS = 0
+function readCliffDistance() {
+    groundNow = matrixLidarDistance.matrixPointOutput(LIDAR_ADDR, 3, 3)
+}
 
-FORWARD_SPEED = 75
-TURN_FAST = 80
-TURN_SLOW = 25
-BACK_SPEED = 55
-OBSTACLE_MM = 200
+function stopPidNow() {
+    maqueenPlusV2.pidControlStop()
+    pidForwardActive = false
+    stuckSince = 0
+    almostStoppedSince = 0
+}
 
-// jumitunnistuksen säädöt
-STUCK_TIME_MS = 3000
-STUCK_DELTA_MM = 15
-WATCH_NEAR_MM = 300
-BACK_15CM_MS = 650
-RETRY_TURN_MS = 450
+function startForwardPid() {
+    maqueenPlusV2.pidControlDistance(
+        maqueenPlusV2.SpeedDirection.SpeedCW,
+        FORWARD_SEGMENT_CM,
+        maqueenPlusV2.MyInterruption.Allowed
+    )
+    pidForwardActive = true
+    forwardStartedAt = input.runningTime()
+    stuckSince = 0
+    almostStoppedSince = 0
+}
+
+function turnRightDeg(deg: number) {
+    maqueenPlusV2.pidControlAngle(
+        RIGHT_SIGN * deg,
+        maqueenPlusV2.MyInterruption.NotAllowed
+    )
+}
+
+function turnLeftDeg(deg: number) {
+    maqueenPlusV2.pidControlAngle(
+        -RIGHT_SIGN * deg,
+        maqueenPlusV2.MyInterruption.NotAllowed
+    )
+}
+
+function chooseOpenTurn(deg: number) {
+    readFrontDistances()
+
+    if (spaceScore(leftFront) > spaceScore(rightFront) + 40) {
+        turnLeftDeg(deg)
+    } else if (spaceScore(rightFront) > spaceScore(leftFront) + 40) {
+        turnRightDeg(deg)
+    } else {
+        if (turnBias > 0) {
+            turnRightDeg(deg)
+            turnBias = -1
+        } else {
+            turnLeftDeg(deg)
+            turnBias = 1
+        }
+    }
+}
+
+function obstacleEscape() {
+    stopPidNow()
+    basic.pause(60)
+
+    maqueenPlusV2.pidControlDistance(
+        maqueenPlusV2.SpeedDirection.SpeedCCW,
+        BACKUP_CM,
+        maqueenPlusV2.MyInterruption.NotAllowed
+    )
+    basic.pause(60)
+
+    chooseOpenTurn(NORMAL_TURN_DEG)
+    basic.pause(60)
+}
+
+function stuckEscape() {
+    stopPidNow()
+    basic.pause(60)
+
+    maqueenPlusV2.pidControlDistance(
+        maqueenPlusV2.SpeedDirection.SpeedCCW,
+        BACKUP_CM,
+        maqueenPlusV2.MyInterruption.NotAllowed
+    )
+    basic.pause(60)
+
+    chooseOpenTurn(ESCAPE_TURN_DEG)
+    basic.pause(60)
+}
+
+function cliffEscape() {
+    stopPidNow()
+    basic.pause(60)
+
+    maqueenPlusV2.pidControlDistance(
+        maqueenPlusV2.SpeedDirection.SpeedCCW,
+        CLIFF_BACKUP_CM,
+        maqueenPlusV2.MyInterruption.NotAllowed
+    )
+    basic.pause(60)
+
+    if (turnBias > 0) {
+        turnRightDeg(110)
+        turnBias = -1
+    } else {
+        turnLeftDeg(110)
+        turnBias = 1
+    }
+
+    basic.pause(60)
+}
+
+function calibrateGround() {
+    let sum = 0
+    let count = 0
+    let d = 0
+
+    // LiDAR tarvitsee noin 3 s käynnistyäkseen
+    basic.pause(3500)
+
+    for (let i = 0; i < 8; i++) {
+        d = matrixLidarDistance.matrixPointOutput(LIDAR_ADDR, 3, 3)
+        if (d > 0) {
+            sum += d
+            count += 1
+        }
+        basic.pause(30)
+    }
+
+    if (count > 0) {
+        groundRef = sum / count
+    } else {
+        groundRef = 120
+    }
+}
 
 maqueenPlusV2.I2CInit()
-matrixLidarDistance.initialize(matrixLidarDistance.Addr.Addr4, matrixLidarDistance.Matrix.OBS)
-matrixLidarDistance.setObstacleDistance(OBSTACLE_MM)
+matrixLidarDistance.initialize(LIDAR_ADDR, matrixLidarDistance.Matrix.MAT)
+calibrateGround()
 
 basic.forever(function () {
-    matrixLidarDistance.getData()
-    leftDist = matrixLidarDistance.getObstacleDistance(matrixLidarDistance.ObstacleSide.Left)
-    rightDist = matrixLidarDistance.getObstacleDistance(matrixLidarDistance.ObstacleSide.Right)
+    let actionTaken = false
 
-    // normaali esteenväistö
-    if (isObstacle(leftDist) || isObstacle(rightDist)) {
-        stopMotors()
-        basic.pause(150)
-        driveBackward()
-        basic.pause(300)
+    readFrontDistances()
+    readCliffDistance()
 
-        if (openScore(leftDist) > openScore(rightDist)) {
-            turnLeft()
-        } else {
-            turnRight()
-        }
+    leftSpeed = maqueenPlusV2.readRealTimeSpeed(maqueenPlusV2.DirectionType2.Left)
+    rightSpeed = maqueenPlusV2.readRealTimeSpeed(maqueenPlusV2.DirectionType2.Right)
 
-        basic.pause(320)
+    // 1) Rapun/pudotuksen tunnistus
+    if (groundNow > 0 && groundNow > groundRef + CLIFF_MARGIN_MM) {
+        cliffEscape()
+        actionTaken = true
 
-        stuckStart = 0
-        prevLeftDist = leftDist
-        prevRightDist = rightDist
+        // 2) Selkeä este suoraan edessä tai molemmilla puolilla
+    } else if (isObstacle(centerFront, CENTER_OBSTACLE_MM) ||
+        (isObstacle(leftFront, SIDE_OBSTACLE_MM) && isObstacle(rightFront, SIDE_OBSTACLE_MM))) {
+        obstacleEscape()
+        actionTaken = true
 
-    } else {
-        // vapaa reitti -> aja eteenpäin
-        driveForward()
+        // 3) Este vain vasemmalla -> pieni korjaus oikealle
+    } else if (isObstacle(leftFront, SIDE_OBSTACLE_MM)) {
+        stopPidNow()
+        basic.pause(30)
+        turnRightDeg(SMALL_TURN_DEG)
+        basic.pause(30)
+        actionTaken = true
 
-        // yritetään tunnistaa jumi vain silloin, kun ainakin jompikumpi etäisyys on lähellä
-        if ((leftDist > 0 && leftDist < WATCH_NEAR_MM) || (rightDist > 0 && rightDist < WATCH_NEAR_MM)) {
+        // 4) Este vain oikealla -> pieni korjaus vasemmalle
+    } else if (isObstacle(rightFront, SIDE_OBSTACLE_MM)) {
+        stopPidNow()
+        basic.pause(30)
+        turnLeftDeg(SMALL_TURN_DEG)
+        basic.pause(30)
+        actionTaken = true
+    }
 
-            if (prevLeftDist == 0 && prevRightDist == 0) {
-                prevLeftDist = leftDist
-                prevRightDist = rightDist
-                stuckStart = input.runningTime()
-            } else {
-                if (Math.abs(leftDist - prevLeftDist) <= STUCK_DELTA_MM &&
-                    Math.abs(rightDist - prevRightDist) <= STUCK_DELTA_MM) {
-
-                    if (stuckStart == 0) {
-                        stuckStart = input.runningTime()
+    if (!actionTaken) {
+        if (pidForwardActive) {
+            // Anna PID-ajolle hetki aikaa lähteä käyntiin
+            if (input.runningTime() - forwardStartedAt > 700) {
+                // Jumitunnistus: käsky päällä, mutta nopeus lähes nolla pitkään
+                if (avgSpeed() <= STUCK_SPEED_CM_S) {
+                    if (stuckSince == 0) {
+                        stuckSince = input.runningTime()
                     }
 
-                    if (input.runningTime() - stuckStart >= STUCK_TIME_MS) {
-                        escapeFromStuck()
+                    if (input.runningTime() - stuckSince >= STUCK_TIME_MS) {
+                        stuckEscape()
+                        actionTaken = true
                     }
                 } else {
-                    // etäisyydet muuttuivat -> auto todennäköisesti liikkuu
-                    prevLeftDist = leftDist
-                    prevRightDist = rightDist
-                    stuckStart = input.runningTime()
+                    stuckSince = 0
+                }
+
+                // Kun PID-segmentti on valmis, vapauta tila uutta eteenajoa varten
+                if (avgSpeed() <= FINISHED_SPEED_CM_S) {
+                    if (almostStoppedSince == 0) {
+                        almostStoppedSince = input.runningTime()
+                    }
+
+                    if (input.runningTime() - almostStoppedSince >= FINISHED_TIME_MS) {
+                        pidForwardActive = false
+                        almostStoppedSince = 0
+                    }
+                } else {
+                    almostStoppedSince = 0
                 }
             }
-        } else {
-            // ei tarpeeksi tietoa jumitunnistukseen
-            stuckStart = 0
-            prevLeftDist = leftDist
-            prevRightDist = rightDist
+        }
+
+        if (!pidForwardActive && !actionTaken) {
+            startForwardPid()
         }
     }
 
