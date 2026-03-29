@@ -1,68 +1,85 @@
-let OBSTACLE_MM = 0
-let TRAP_MM = 0
-let FORWARD_SPEED = 0
-let TURN_FAST = 0
-let TURN_SLOW = 0
-let BACK_SPEED = 0
-let ESCAPE_BACK_SPEED = 0
-let leftDist = 0
-let rightDist = 0
-let escapeSide = 0
-let escapeLevel = 0
-let backTime = 0
-let turnTime = 0
-
+function turnLeft() {
+    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.LeftMotor, maqueenPlusV2.MyEnumDir.Forward, TURN_SLOW)
+    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.RightMotor, maqueenPlusV2.MyEnumDir.Forward, TURN_FAST)
+}
 function stopMotors() {
     maqueenPlusV2.controlMotorStop(maqueenPlusV2.MyEnumMotor.AllMotor)
 }
-
-function driveForward() {
-    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.LeftMotor, maqueenPlusV2.MyEnumDir.Forward, FORWARD_SPEED)
-    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.RightMotor, maqueenPlusV2.MyEnumDir.Forward, FORWARD_SPEED)
-}
-
 function driveBackward() {
     maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.LeftMotor, maqueenPlusV2.MyEnumDir.Backward, BACK_SPEED)
     maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.RightMotor, maqueenPlusV2.MyEnumDir.Backward, BACK_SPEED)
 }
-
-function driveBackwardHard() {
-    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.LeftMotor, maqueenPlusV2.MyEnumDir.Backward, ESCAPE_BACK_SPEED)
-    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.RightMotor, maqueenPlusV2.MyEnumDir.Backward, ESCAPE_BACK_SPEED)
-}
-
-function turnLeftSoft() {
-    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.LeftMotor, maqueenPlusV2.MyEnumDir.Forward, TURN_SLOW)
-    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.RightMotor, maqueenPlusV2.MyEnumDir.Forward, TURN_FAST)
-}
-
-function turnRightSoft() {
+function turnRight() {
     maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.LeftMotor, maqueenPlusV2.MyEnumDir.Forward, TURN_FAST)
     maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.RightMotor, maqueenPlusV2.MyEnumDir.Forward, TURN_SLOW)
 }
+function driveForward() {
+    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.LeftMotor, maqueenPlusV2.MyEnumDir.Forward, FORWARD_SPEED)
+    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.RightMotor, maqueenPlusV2.MyEnumDir.Forward, FORWARD_SPEED)
+}
+function isObstacle(dist: number) {
+    return dist > 0 && dist < OBSTACLE_MM
+}
+function openScore(dist: number) {
+    if (dist <= 0) {
+        return 1000
+    } else {
+        return dist
+    }
+}
+function escapeFromStuck() {
+    stopMotors()
+    basic.pause(150)
 
-function spinLeft() {
-    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.LeftMotor, maqueenPlusV2.MyEnumDir.Backward, TURN_FAST)
-    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.RightMotor, maqueenPlusV2.MyEnumDir.Forward, TURN_FAST)
+    // noin 15 cm, säädä tarvittaessa 500...800 ms
+    driveBackward()
+    basic.pause(BACK_15CM_MS)
+
+    // käänny siihen suuntaan, jossa on enemmän tilaa
+    if (openScore(leftDist) > openScore(rightDist)) {
+        turnLeft()
+    } else {
+        turnRight()
+    }
+    basic.pause(RETRY_TURN_MS)
+
+    stopMotors()
+    basic.pause(100)
+
+    stuckStart = 0
+    prevLeftDist = leftDist
+    prevRightDist = rightDist
 }
 
-function spinRight() {
-    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.LeftMotor, maqueenPlusV2.MyEnumDir.Forward, TURN_FAST)
-    maqueenPlusV2.controlMotor(maqueenPlusV2.MyEnumMotor.RightMotor, maqueenPlusV2.MyEnumDir.Backward, TURN_FAST)
-}
+let rightDist = 0
+let leftDist = 0
+let BACK_SPEED = 0
+let TURN_SLOW = 0
+let TURN_FAST = 0
+let FORWARD_SPEED = 0
+let OBSTACLE_MM = 0
 
-// Säädöt
-OBSTACLE_MM = 220
-TRAP_MM = 170
+let prevLeftDist = 0
+let prevRightDist = 0
+let stuckStart = 0
+let STUCK_TIME_MS = 0
+let STUCK_DELTA_MM = 0
+let WATCH_NEAR_MM = 0
+let BACK_15CM_MS = 0
+let RETRY_TURN_MS = 0
 
-FORWARD_SPEED = 60
-TURN_FAST = 75
-TURN_SLOW = 20
-BACK_SPEED = 50
-ESCAPE_BACK_SPEED = 65
+FORWARD_SPEED = 75
+TURN_FAST = 80
+TURN_SLOW = 25
+BACK_SPEED = 55
+OBSTACLE_MM = 200
 
-escapeSide = 0
-escapeLevel = 0
+// jumitunnistuksen säädöt
+STUCK_TIME_MS = 3000
+STUCK_DELTA_MM = 15
+WATCH_NEAR_MM = 300
+BACK_15CM_MS = 650
+RETRY_TURN_MS = 450
 
 maqueenPlusV2.I2CInit()
 matrixLidarDistance.initialize(matrixLidarDistance.Addr.Addr4, matrixLidarDistance.Matrix.OBS)
@@ -73,75 +90,61 @@ basic.forever(function () {
     leftDist = matrixLidarDistance.getObstacleDistance(matrixLidarDistance.ObstacleSide.Left)
     rightDist = matrixLidarDistance.getObstacleDistance(matrixLidarDistance.ObstacleSide.Right)
 
-    // Ahdas väli: molemmat puolet liian lähellä
-    if (leftDist < TRAP_MM && rightDist < TRAP_MM) {
-        escapeLevel += 1
-        if (escapeLevel > 3) {
-            escapeLevel = 3
-        }
-
-        backTime = 500 + escapeLevel * 200
-        turnTime = 600 + escapeLevel * 200
-
+    // normaali esteenväistö
+    if (isObstacle(leftDist) || isObstacle(rightDist)) {
         stopMotors()
-        basic.pause(100)
-        driveBackwardHard()
-        basic.pause(backTime)
+        basic.pause(150)
+        driveBackward()
+        basic.pause(300)
 
-        // Käänny sinne, missä on enemmän tilaa
-        if (leftDist + 30 < rightDist) {
-            spinRight()
-            escapeSide = 1
-        } else if (rightDist + 30 < leftDist) {
-            spinLeft()
-            escapeSide = 0
+        if (openScore(leftDist) > openScore(rightDist)) {
+            turnLeft()
         } else {
-            // Jos molemmat ovat melkein yhtä lähellä, vaihda suuntaa vuorotellen
-            if (escapeSide == 0) {
-                spinLeft()
-                escapeSide = 1
-            } else {
-                spinRight()
-                escapeSide = 0
-            }
+            turnRight()
         }
 
-        basic.pause(turnTime)
-        stopMotors()
-        basic.pause(100)
+        basic.pause(320)
 
-        // Edessä jotain molemmilla puolilla, mutta ei vielä aivan jumissa
-    } else if (leftDist < OBSTACLE_MM && rightDist < OBSTACLE_MM) {
-        stopMotors()
-        basic.pause(50)
-        driveBackwardHard()
-        basic.pause(400)
+        stuckStart = 0
+        prevLeftDist = leftDist
+        prevRightDist = rightDist
 
-        if (escapeSide == 0) {
-            spinLeft()
-            escapeSide = 1
-        } else {
-            spinRight()
-            escapeSide = 0
-        }
-
-        basic.pause(500)
-        stopMotors()
-        basic.pause(50)
-
-        // Vasen puoli liian lähellä -> väistä oikealle
-    } else if (leftDist < OBSTACLE_MM) {
-        turnRightSoft()
-        basic.pause(180)
-
-        // Oikea puoli liian lähellä -> väistä vasemmalle
-    } else if (rightDist < OBSTACLE_MM) {
-        turnLeftSoft()
-        basic.pause(180)
-
-        // Reitti vapaa
     } else {
+        // vapaa reitti -> aja eteenpäin
         driveForward()
-        escapeLevel = 0
+
+        // yritetään tunnistaa jumi vain silloin, kun ainakin jompikumpi etäisyys on lähellä
+        if ((leftDist > 0 && leftDist < WATCH_NEAR_MM) || (rightDist > 0 && rightDist < WATCH_NEAR_MM)) {
+
+            if (prevLeftDist == 0 && prevRightDist == 0) {
+                prevLeftDist = leftDist
+                prevRightDist = rightDist
+                stuckStart = input.runningTime()
+            } else {
+                if (Math.abs(leftDist - prevLeftDist) <= STUCK_DELTA_MM &&
+                    Math.abs(rightDist - prevRightDist) <= STUCK_DELTA_MM) {
+
+                    if (stuckStart == 0) {
+                        stuckStart = input.runningTime()
+                    }
+
+                    if (input.runningTime() - stuckStart >= STUCK_TIME_MS) {
+                        escapeFromStuck()
+                    }
+                } else {
+                    // etäisyydet muuttuivat -> auto todennäköisesti liikkuu
+                    prevLeftDist = leftDist
+                    prevRightDist = rightDist
+                    stuckStart = input.runningTime()
+                }
+            }
+        } else {
+            // ei tarpeeksi tietoa jumitunnistukseen
+            stuckStart = 0
+            prevLeftDist = leftDist
+            prevRightDist = rightDist
+        }
     }
+
+    basic.pause(50)
 })
