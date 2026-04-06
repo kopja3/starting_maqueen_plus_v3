@@ -1,109 +1,60 @@
-let followingLine = false
-let lastTurn = 0
-
-const BASE_SPEED = 70
-const TURN_FAST = 110
-const TURN_SLOW = 20
-
-function stopCar() {
-    maqueenPlusV2.controlMotor(
-        maqueenPlusV2.MyEnumMotor.LeftMotor,
-        maqueenPlusV2.MyEnumDir.Forward,
-        0
-    )
-    maqueenPlusV2.controlMotor(
-        maqueenPlusV2.MyEnumMotor.RightMotor,
-        maqueenPlusV2.MyEnumDir.Forward,
-        0
-    )
+enum ProgramMode {
+    LineFollowing,
+    LaserShuttle,
 }
 
-function goStraight() {
-    maqueenPlusV2.controlMotor(
-        maqueenPlusV2.MyEnumMotor.LeftMotor,
-        maqueenPlusV2.MyEnumDir.Forward,
-        BASE_SPEED
-    )
-    maqueenPlusV2.controlMotor(
-        maqueenPlusV2.MyEnumMotor.RightMotor,
-        maqueenPlusV2.MyEnumDir.Forward,
-        BASE_SPEED
-    )
-}
+// Change this one line in MakeCode to choose the program.
+const ACTIVE_MODE = ProgramMode.LineFollowing
 
-function turnLeftSoft() {
-    maqueenPlusV2.controlMotor(
-        maqueenPlusV2.MyEnumMotor.LeftMotor,
-        maqueenPlusV2.MyEnumDir.Forward,
-        TURN_SLOW
-    )
-    maqueenPlusV2.controlMotor(
-        maqueenPlusV2.MyEnumMotor.RightMotor,
-        maqueenPlusV2.MyEnumDir.Forward,
-        TURN_FAST
-    )
-    lastTurn = -1
-}
+let robotRunning = false
 
-function turnRightSoft() {
-    maqueenPlusV2.controlMotor(
-        maqueenPlusV2.MyEnumMotor.LeftMotor,
-        maqueenPlusV2.MyEnumDir.Forward,
-        TURN_FAST
-    )
-    maqueenPlusV2.controlMotor(
-        maqueenPlusV2.MyEnumMotor.RightMotor,
-        maqueenPlusV2.MyEnumDir.Forward,
-        TURN_SLOW
-    )
-    lastTurn = 1
+function showSelectedMode() {
+    if (ACTIVE_MODE == ProgramMode.LineFollowing) {
+        basic.showString("LINE")
+    } else {
+        basic.showString("LASER")
+    }
 }
 
 input.onButtonPressed(Button.B, function () {
-    followingLine = true
+    robotRunning = true
     basic.showString("GO")
 })
 
 input.onButtonPressed(Button.A, function () {
-    followingLine = false
-    stopCar()
+    robotRunning = false
+    Drive.stop()
     basic.showString("STOP")
 })
 
+input.onButtonPressed(Button.AB, function () {
+    if (ACTIVE_MODE == ProgramMode.LaserShuttle) {
+        LaserShuttleMode.toggleReverseMode()
+    } else {
+        showSelectedMode()
+    }
+})
+
 maqueenPlusV2.I2CInit()
-basic.showString("VALMIS")
+
+if (ACTIVE_MODE == ProgramMode.LaserShuttle) {
+    LaserShuttleMode.init()
+} else {
+    LineFollowingMode.init()
+}
+
+showSelectedMode()
 
 basic.forever(function () {
-    if (!followingLine) {
+    if (!robotRunning) {
         basic.pause(50)
         return
     }
 
-    let left = maqueenPlusV2.readLineSensorState(maqueenPlusV2.MyEnumLineSensor.SensorL1)
-    let middle = maqueenPlusV2.readLineSensorState(maqueenPlusV2.MyEnumLineSensor.SensorM)
-    let right = maqueenPlusV2.readLineSensorState(maqueenPlusV2.MyEnumLineSensor.SensorR1)
-
-    // musta viiva = 1, vaalea = 0
-    if (middle == 1 && left == 0 && right == 0) {
-        goStraight()
-    } else if (left == 1 && right == 0) {
-        turnLeftSoft()
-    } else if (right == 1 && left == 0) {
-        turnRightSoft()
-    } else if (left == 1 && middle == 1 && right == 0) {
-        turnLeftSoft()
-    } else if (right == 1 && middle == 1 && left == 0) {
-        turnRightSoft()
-    } else if (left == 1 && middle == 1 && right == 1) {
-        goStraight()
+    if (ACTIVE_MODE == ProgramMode.LineFollowing) {
+        LineFollowingMode.step()
     } else {
-        if (lastTurn < 0) {
-            turnLeftSoft()
-        } else if (lastTurn > 0) {
-            turnRightSoft()
-        } else {
-            stopCar()
-        }
+        LaserShuttleMode.step()
     }
 
     basic.pause(10)
