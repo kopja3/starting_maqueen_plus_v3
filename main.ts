@@ -4,7 +4,7 @@ enum ProgramMode {
 }
 
 // Change this one line in MakeCode to choose the program.
-const ACTIVE_MODE = ProgramMode.LineFollowing
+const ACTIVE_MODE = ProgramMode.LaserShuttle
 
 let robotRunning = false
 
